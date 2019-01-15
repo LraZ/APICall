@@ -6,28 +6,42 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-import android.widget.TextView;
+import android.widget.ListAdapter;
+import android.widget.ListView;
+import android.widget.SimpleAdapter;
+import android.widget.Toast;
 
+import com.example.apicall.entities.AccessPoint;
+
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.ArrayList;
+import java.util.HashMap;
 
 public class MainActivity extends AppCompatActivity {
-
-    TextView tvWeatherJson;
+    private String TAG = MainActivity.class.getSimpleName();
+    ListView lv;
     Button  btnFetchWeather;
+    ArrayList<HashMap<String,String>> resultList;
+    AccessPoint tempAP;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_http_url_connection);
-        tvWeatherJson = (TextView) findViewById(R.id.tv_weather_json);
+        resultList = new ArrayList<>();
+        tempAP = new AccessPoint();
+
+        lv = (ListView) findViewById(R.id.tv_weather_json);
         btnFetchWeather = (Button) findViewById(R.id.btn_fetch_weather);
         btnFetchWeather.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -38,19 +52,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    private class FetchWeatherData extends AsyncTask<Void, Void, String> {
+    private class FetchWeatherData extends AsyncTask<Void, Void, Void> {
 
         @Override
-        protected String doInBackground(Void... params) {
+        protected Void doInBackground(Void... params) {
             // These two need to be declared outside the try/catch
             // so that they can be closed in the finally block.
-            HttpURLConnection urlConnection = null;
+            HttpURLConnection conn = null;
             BufferedReader reader = null;
 
             // Will contain the raw JSON response as a string.
-            String forecastJsonStr = null;
+            String response = "";
 
-            LinkedList<String> resultList = new LinkedList<>();
 
             try {
                 // Construct the URL for the OpenWeatherMap query
@@ -58,41 +71,93 @@ public class MainActivity extends AppCompatActivity {
                 // http://openweathermap.org/API#forecast
                 //https://www.salzburg.gv.at/ogd/c8711f5c-a49f-446d-ad69-6435bbc5a78e/names-szg.json
                 //http://192.168.0.241:9000/api/getAllAccessPoints
-                URL url = new URL("http://192.168.0.233:9000/api/getAccessPoints");
+                URL url = new URL("http://192.168.0.233:9000/api/getAllAccessPoints");
 
                 // Create the request to OpenWeatherMap, and open the connection
-                urlConnection = (HttpURLConnection) url.openConnection();
-                urlConnection.setRequestMethod("GET");
-                urlConnection.connect();
+                conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.connect();
 
 
                 // Read the input stream into a String
-                InputStream inputStream = urlConnection.getInputStream();
-                StringBuffer buffer = new StringBuffer();
-                if (inputStream == null) {
-                    // Nothing to do.
-                    return null;
-                }
-                reader = new BufferedReader(new InputStreamReader(inputStream));
+                InputStream in = new BufferedInputStream(conn.getInputStream());
+                StringBuilder sb = new StringBuilder();
+
+                reader = new BufferedReader(new InputStreamReader(in));
 
                 String line;
-                while ((line = reader.readLine()) != null) {
-                    // Since it's JSON, adding a newline isn't necessary (it won't affect parsing)
-                    // But it does make debugging a *lot* easier if you print out the completed
-                    // buffer for debugging.
-                    buffer.append(line + "\n");
-                    //resultList.add(line);
+                try {
+                    while ((line = reader.readLine()) != null) {
+                        sb.append(line).append('\n');
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } finally {
+                    try {
+                        in.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
                 }
 
-                if (buffer.length() == 0) {
-                    // Stream was empty.  No point in parsing.
-                    return null;
+                response = sb.toString();
+
+                Log.e(TAG, "Response from url: " + response);
+
+                if (response != null) {
+                    try {
+                        JSONObject jsonObj = new JSONObject(response);
+                        // Getting JSON Array node
+                        JSONArray data = jsonObj.getJSONArray("data");
+
+                        // looping through All Contacts
+                        for (int i = 0; i < data.length(); i++) {
+                            JSONObject d = data.getJSONObject(i);
+                            String mac = d.getString("mac");
+                            String type = d.getString("type");
+                            String activity = d.getString("activity");
+                            tempAP.setMac(d.getString("mac"));
+                            tempAP.setType(d.getInt("type"));
+                            tempAP.setActivity(d.getBoolean("activity"));
+
+
+                            // tmp hash map for single contact
+                            HashMap<String, String> DataHashMap = new HashMap<>();
+
+                            // adding each child node to HashMap key => value
+                            DataHashMap.put("mac", mac);
+                            DataHashMap.put("type", type);
+                            DataHashMap.put("activity", activity);
+
+                            // adding contact to contact list
+                            resultList.add(DataHashMap);
+                        }
+                    } catch (final JSONException e) {
+                        Log.e(TAG, "Json parsing error: " + e.getMessage());
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                Toast.makeText(getApplicationContext(),
+                                        "Json parsing error: " + e.getMessage(),
+                                        Toast.LENGTH_LONG).show();
+                            }
+                        });
+
+                    }
+
+                } else {
+                    Log.e(TAG, "Couldn't get json from server.");
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Toast.makeText(getApplicationContext(),
+                                    "Couldn't get json from server. Check LogCat for possible errors!",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
                 }
 
-                forecastJsonStr = buffer.toString();
-                String in;
-                JSONObject jsonObj = new JSONObject();
-                return forecastJsonStr;
+                return null;
                 //return resultList;
             } catch (IOException e) {
                 Log.e("PlaceholderFragment", "Error ", e);
@@ -100,8 +165,8 @@ public class MainActivity extends AppCompatActivity {
                 // to parse it.
                 return null;
             } finally {
-                if (urlConnection != null) {
-                    urlConnection.disconnect();
+                if (conn != null) {
+                    conn.disconnect();
                 }
                 if (reader != null) {
                     try {
@@ -114,10 +179,12 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        protected void onPostExecute(String s) {
-            super.onPostExecute(s);
-            tvWeatherJson.setText(s);
-            Log.i("json", s);
+        protected void onPostExecute(Void result) {
+            super.onPostExecute(result);
+            ListAdapter adapter = new SimpleAdapter(MainActivity.this, resultList,
+                    R.layout.list_item, new String[]{ "mac","type", "activity"},
+                    new int[]{R.id.mac, R.id.type, R.id.activity});
+            lv.setAdapter(adapter);
         }
     }
 }

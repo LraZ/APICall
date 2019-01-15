@@ -16,6 +16,10 @@ public class AccessPoint {
     @SerializedName("signal")
     private int signal;
 
+    public AccessPoint(){
+
+    }
+
     public AccessPoint(String BSSID, Integer type, boolean status, String desc, Integer signal){
         this.mac = BSSID;
         this.type = type;
